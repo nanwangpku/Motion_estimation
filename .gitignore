@@ -1,0 +1,10 @@
+# large/local data — see README for download link
+data/*.mat
+
+# MATLAB autosave
+*.asv
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/

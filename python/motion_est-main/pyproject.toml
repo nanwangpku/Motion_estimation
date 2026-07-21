@@ -1,0 +1,15 @@
+[build-system]
+requires = [
+   "setuptools",
+   "wheel"
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "motion_est"
+version = "0.0.1"
+authors = [
+  { name="Nan Wang", email="wangnx@stanford.edu" },
+]
+description = "A package for motion estimation with SMENA"
+readme = "README.md"

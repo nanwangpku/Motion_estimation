@@ -1,0 +1,32 @@
+name: motion_est
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - cupy
+  - einops
+  - ipykernel
+  - libgomp
+  - libxcrypt
+  - matplotlib
+  - nccl
+  - numpy==1.22.4
+  - pip
+  - python=3.10
+  - pytorch-cuda=11.8
+  - pytorch=2.5.1=py3.10_cuda11.8_cudnn9.1.0_0  # pin exact build: conda-forge also ships a pytorch
+                                                 # package and can silently win with a CPU-only build
+                                                 # if left unpinned, even with pytorch-cuda set
+  - scikit-image
+  - torchaudio
+  - torchvision
+  - pip:
+      - cvxpy
+      - fast-pytorch-kmeans
+      - sigpy
+      - torchkbnufft
+      - jaxtyping
+      - triton
+      - tqdm
+      - h5py
