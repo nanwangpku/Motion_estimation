@@ -44,7 +44,8 @@ data/
 
 `data/*.mat` are not tracked in this repo (`example_smena_data_meGRE2.mat` is 1.2GB,
 `example_corrupted_data_meGRE2.mat` is 8.9GB — both well over GitHub's size limits).
-Download them here and place them under `data/`: **[link TBD]**
+Download them here and place them under `data/`: 
+https://drive.google.com/drive/folders/1MxaADMAppkx_47NIXhYkwR33qZwaeJKP?usp=drive_link
 
 ## Setting up MATLAB
 
