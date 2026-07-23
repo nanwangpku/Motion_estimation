@@ -18,6 +18,8 @@ that estimate to reconstruct a motion-corrected multi-echo GRE image.
    k-space) and reconstructs motion-corrected + uncorrected images for a few
    representative echoes.
 
+   in this code, the continuous motion states are divided into multiple groups by kmeans clustering. To allow the reconstion of data including all motion states within a feasible time, please check out mobile-GRAPPA method: https://github.com/linym20/Mobile-GRAPPA.
+
 ## Layout
 
 ```
