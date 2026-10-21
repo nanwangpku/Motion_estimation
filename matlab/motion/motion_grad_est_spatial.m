@@ -324,7 +324,7 @@ for ii_bin = 1:nbins
     img_grad_SEs = img_grad.*SEs_perm;
     
     % updatebuild grad matrix M_grad
-    M_grad = zeros(numel(kx_sel)*shot_per_bin*Ncoils*numel(nt_sel_mo),6);
+    M_grad = zeros(numel(find(mask_tmp(:)==1)),6);
     for ii = 1:6
         tmp = fft3c(img_grad_SEs(:,:,:,:,:,ii))-fft3c(img_ref_SEs);
         tmp = tmp(mask_tmp(:));

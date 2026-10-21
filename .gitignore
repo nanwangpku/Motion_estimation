@@ -1,10 +1,14 @@
-# large/local data — see README for download link
-data/*.mat
+# machine-specific paths
+matlab/motion/motion_local_config.m
 
-# MATLAB autosave
-*.asv
+# data (see README for the download link)
+data/
+*.mat
+*.cfl
+*.hdr
 
-# Python
+# python / MATLAB cruft
 __pycache__/
 *.pyc
 *.egg-info/
+*.asv

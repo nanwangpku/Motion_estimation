@@ -23,6 +23,8 @@ function out = motion_newton_core(cfg)
 %   scout_rep_sel         - 3 (for a0_all_rep non-bkfs loading)
 
 %% Defaults
+if ~isfield(cfg,'no_nav'),                   cfg.no_nav = false; end
+if ~isfield(cfg,'scout_path_internal'),      cfg.scout_path_internal = ''; end
 if ~isfield(cfg,'pos_nav_path'),             cfg.pos_nav_path = ''; end
 if ~isfield(cfg,'Nt_ahead'),                 cfg.Nt_ahead = 7; end
 if ~isfield(cfg,'bin_center'),               cfg.bin_center = 1; end
@@ -56,7 +58,31 @@ coil_sel    = cfg.coil_sel;
 useGPU      = false;
 
 %% Data loading
-if isempty(cfg.pos_nav_path)
+if cfg.no_nav
+    %--- No nav acquired (nav is not critical to motion estimation) ----
+    % Load only the main + fid files; treat as a single "bin" (nav_rep=1)
+    % since there is no separate per-bin navigator data to bin by.
+    pos_data     = load(fullfile(dataset_path, cfg.pos_path), ...
+       'ScanType', 'SEs','Nx','Ny','Nz','shot','Nrep','flags');
+    pos_fid_data = load(fullfile(dataset_path, cfg.pos_fid_path), ...
+        'kspace_cart_orig_all','ky','kz','shot','TEs');
+
+    kspace_cart_orig_fid = pos_fid_data.kspace_cart_orig_all;
+    file_name    = regexp(cfg.pos_path, filesep, 'split'); file_name = file_name{1};
+    ky_fid       = pos_fid_data.ky;
+    kz_fid       = pos_fid_data.kz;
+    shot_fid     = pos_fid_data.shot;
+    Nrep         = pos_data.Nrep;
+    shot         = pos_data.shot;
+    flip_flag    = pos_data.flags.flip_flag;
+    B0_nav       = [];
+    TEs_nav      = [];
+    a0_nav       = [];
+    Phi_nav      = [];
+    nav_rep      = 1;
+    nav_int      = [];
+    is_split     = true; % unused: a_nav_sense build is skipped below
+elseif isempty(cfg.pos_nav_path)
     %--- Standard: single pos_data file --------------------------------
     load(fullfile(dataset_path, cfg.pos_fid_path), 'kspace_cart_orig_fid');
 
@@ -92,7 +118,7 @@ else
     pos_data     = load(fullfile(dataset_path, cfg.pos_path), ...
        'ScanType', 'SEs','Nx','Ny','Nz','shot','Nrep','flags');
     pos_nav_data = load(fullfile(dataset_path, cfg.pos_nav_path), ...
-        'a0_all_rep','Phi','B0_all','TEs','Nx','Ny','Nz');
+        'a_all_rep','Phi','B0_all','TEs','Nx','Ny','Nz');
     pos_fid_data = load(fullfile(dataset_path, cfg.pos_fid_path), ...
         'kspace_cart_orig_all','ky','kz','shot','TEs');
 
@@ -106,7 +132,7 @@ else
     flip_flag    = pos_data.flags.flip_flag;
     B0_nav       = pos_nav_data.B0_all;
     TEs_nav      = pos_nav_data.TEs;
-    a0_nav       = pos_nav_data.a0_all_rep;
+    a0_nav       = pos_nav_data.a_all_rep;
     Phi_nav      = pos_nav_data.Phi;
     nav_rep      = size(a0_nav,3);
     nav_int      = [];
@@ -135,28 +161,35 @@ size_nav = [Ny_nav, Nz_nav, Nx_nav];
 
 nbins   = nav_rep;
 
+voxel_size = [Ny_targ/Ny_nav, Nz_targ/Nz_nav, Nx_targ/Nx_nav];
+
 %% Reconstruct navigator images
-a_nav_sense = zeros(Ny_nav, Nz_nav, Nx_nav, Nt_scout, nbins);
-if ~is_split
-    for ii_bin = 1:nbins
-        tmp = reshape(reshape(a0_nav(:,ii_bin),[],L) * Phi_nav(nt_scout_idx,:).', ...
-            Ny_nav, Nz_nav, Nx_nav, []);
-        a_nav_sense(:,:,:,:,ii_bin) = tmp .* exp(1i*2*pi * B0_nav(:,:,:,ii_bin) ...
-            .* reshape(TEs_nav(nt_scout_idx),1,1,1,[]));
-    end
+if cfg.no_nav
+    a_nav_sense = [];
 else
-    % split-struct: a0_all_rep is [Ny*Nz*L, Nx, nbins]
-    for ii_bin = 1:nbins
-        tmp = reshape(reshape(permute(reshape(a0_nav(:,:,ii_bin),[],L,Nx_nav),[1 3 2]),[],L) ...
-            * Phi_nav(nt_scout_idx,:).', Ny_nav, Nz_nav, Nx_nav, []);
-        a_nav_sense(:,:,:,:,ii_bin) = tmp .* exp(1i*2*pi * B0_nav(:,:,:,ii_bin) ...
-            .* reshape(TEs_nav(nt_scout_idx),1,1,1,[]));
+    a_nav_sense = zeros(Ny_nav, Nz_nav, Nx_nav, Nt_scout, nbins);
+    if ~is_split
+        for ii_bin = 1:nbins
+            tmp = reshape(reshape(a0_nav(:,ii_bin),[],L) * Phi_nav(nt_scout_idx,:).', ...
+                Ny_nav, Nz_nav, Nx_nav, []);
+            a_nav_sense(:,:,:,:,ii_bin) = tmp .* exp(1i*2*pi * B0_nav(:,:,:,ii_bin) ...
+                .* reshape(TEs_nav(nt_scout_idx),1,1,1,[]));
+        end
+    else
+        % split-struct: a0_all_rep is [Ny*Nz*L, Nx, nbins]
+        for ii_bin = 1:nbins
+            tmp = reshape(reshape(permute(reshape(a0_nav(:,:,ii_bin),[],L,Nx_nav),[1 3 2]),[],L) ...
+                * Phi_nav(nt_scout_idx,:).', Ny_nav, Nz_nav, Nx_nav, []);
+            a_nav_sense(:,:,:,:,ii_bin) = tmp .* exp(1i*2*pi * B0_nav(:,:,:,ii_bin) ...
+                .* reshape(TEs_nav(nt_scout_idx),1,1,1,[]));
+        end
     end
+    clear tmp
 end
-clear tmp
 
 %% Scout loading
 if contains(cfg.scout_path, 'bkfs')
+    disp('bkfs_scout')
     scout_data = load(fullfile(dataset_path, cfg.scout_path), 'a0_all','TEs','B0');
 
     scout_img = ifft3c(circshift(fft3c(scout_data.a0_all(:,:,:,nt_scout_idx)),[1 1 0 0]));
@@ -165,17 +198,29 @@ if contains(cfg.scout_path, 'bkfs')
 else
     % non-bkfs with path2 (temp_sp_pad)
     scout_data  = load(fullfile(dataset_path, cfg.scout_path), 'TEs','B0');
-    scout_data2 = load(fullfile(dataset_path, cfg.scout_path),'a0_sp_rep','L_l','Phi_all');
-    scout_img = reshape(reshape(scout_data2.a0_sp_rep(:,:,:,:,1),[],scout_data2.L_l)*scout_data2.Phi_all(nt_scout_idx,:).',Ny_nav,Nz_nav,Nx_nav,[]);
-    scout_for_ratio = reshape(reshape(scout_data2.a0_sp_rep(:,:,:,:,1),[],scout_data2.L_l)*scout_data2.Phi_all(nt_pick+Nt_ahead,:).',Ny_nav,Nz_nav,Nx_nav,[]);
-    clear scout_data2
+    m = matfile(fullfile(dataset_path, cfg.scout_path));
 
+    if ismember('a0_sp', who(m))
+        disp('spatial_scout')
+        scout_data2 = load(fullfile(dataset_path, cfg.scout_path),'a0_sp','L_l','Phi_all');
+        scout_img = reshape(reshape(scout_data2.a0_sp(:,:,:,:,1),[],scout_data2.L_l)*scout_data2.Phi_all(nt_scout_idx,:).',Ny_nav,Nz_nav,Nx_nav,[]);
+        scout_for_ratio = reshape(reshape(scout_data2.a0_sp(:,:,:,:,1),[],scout_data2.L_l)*scout_data2.Phi_all(nt_pick+Nt_ahead,:).',Ny_nav,Nz_nav,Nx_nav,[]);
+        clear scout_data2
+    
+    else
+        disp('regular_scout')
 %     % non-bkfs with a0_all_rep (old style, 250618_yi)
-%     scout_data = load(fullfile(data_path, cfg.scout_path), 'a0_all_rep','Phi','TEs','B0_all');
-%     a0_all     = scout_data.a0_all_rep(:,:,cfg.scout_rep_sel);
-%     temp       = permute(reshape(a0_all,Ny_nav,Nz_nav,[],Nx_nav),[1 2 4 3]);
-%     temp       = reshape(reshape(temp,[],L)*scout_data.Phi.', Ny_nav,Nz_nav,Nx_nav,[]);
-%     if Nt_ahead > 0
+        scout_data = load(fullfile(dataset_path, cfg.scout_path), 'a0_all','Phi','TEs','B0');
+        a0_all     = scout_data.a0_all;
+        temp       = permute(reshape(a0_all,Ny_nav,Nz_nav,[],Nx_nav),[1 2 4 3]);
+        temp       = reshape(reshape(temp,[],L)*scout_data.Phi.', Ny_nav,Nz_nav,Nx_nav,[]);
+        scout_img = temp(:,:,:,nt_scout_idx) .* exp(1i*2*pi*mean(scout_data.B0(:,:,:,:,cfg.scout_rep_sel),4) ...
+                .* reshape(scout_data.TEs(nt_scout_idx),1,1,1,[]));
+        scout_for_ratio = temp(:,:,:,nt_pick+Nt_ahead).* exp(1i*2*pi*mean(scout_data.B0(:,:,:,:,cfg.scout_rep_sel),4) .* scout_data.TEs(nt_pick+Nt_ahead));
+    clear temp
+    end
+    clear m
+    %     if Nt_ahead > 0
 %         nf = nt_nav+Nt_ahead;
 %         scout_img = temp(:,:,:,1:nf) .* exp(1i*2*pi*scout_data.B0_all(:,:,:,cfg.scout_rep_sel) ...
 %             .* reshape(scout_data.TEs(1:nf),1,1,1,[]));
@@ -188,13 +233,28 @@ else
 end
 
 TEs_fid      = scout_data.TEs(nt_scout_idx);
+%% check if mask out of shoulder is needed
+[mask_si, info] = detect_and_mask_shoulders(abs(scout_img(:,:,:,1)),3, 'Verbose',1,'EdgeThresh',0.35);
+%%
+scout_img         = scout_img .* reshape(mask_si,1,1,[]);
+scout_for_ratio   = scout_for_ratio .* reshape(mask_si,1,1,[]);
+if ~cfg.no_nav
+    a_nav_sense   = a_nav_sense .* reshape(mask_si,1,1,[]);
+end
 
+for ii = 1:numel(kspace_cart_orig_fid) % kspace_cart_orig_fid first dim (Nx) is in image domain
+    for jj = 1:numel(kspace_cart_orig_fid{ii})
+        kspace_cart_orig_fid{ii}{jj} = kspace_cart_orig_fid{ii}{jj}.* mask_si;
+    end
+end
+
+if ~cfg.no_nav
 %% Motion estimation pass 1: scout → navigator
 Nx_targ_sel = ceil(5/6*Nx_nav);
 ref_frame = 2;
 res_regi = [];
 orient_regi = [];
-deb = 2;
+deb = 0;
 clear img_save motion_params
 
 tmp = scout_for_ratio;
@@ -207,7 +267,6 @@ for ii_bin = 1:nbins
     tmp(:,:,Nx_targ_sel:end) = 0;
     img_save{2} = tmp;
 
-    voxel_size = [Ny_targ/Ny_nav, Nz_targ/Nz_nav, Nx_targ/Nx_nav];
     [~,motion_params_tmp] = alignVolumes(img_save,res_regi,orient_regi,ref_frame,[3 .3],0,[],deb);
     motion_params_tmp     = squeeze(motion_params_tmp);
     T_tmp                 = motion_params_tmp(1,[4 5 6 3 1 2]);
@@ -243,7 +302,6 @@ for ii_bin = 1:nbins
     tmp(:,:,Nx_targ_sel:end) = 0;
     img_save{2} = tmp;
 
-    voxel_size = [Ny_targ/Ny_nav, Nz_targ/Nz_nav, Nx_targ/Nx_nav];
     [~,motion_params_tmp] = alignVolumes(img_save,res_regi,orient_regi,ref_frame,[3 .3],0,[],deb);
     motion_params_tmp     = squeeze(motion_params_tmp);
     T_tmp                 = motion_params_tmp(1,[4 5 6 3 1 2]);
@@ -253,6 +311,56 @@ for ii_bin = 1:nbins
 end
 clear motion_params_tmp
 motion_params_base = motion_params;
+else
+    % No nav data: nav is not critical to motion estimation, so per-bin
+    % scout<->navigator registration (motion_params_base) is skipped
+    % entirely -- motion_newton_round.m only consumes it inside its
+    % st_flag==1 joint-B0 block, which is itself skipped when nav_rep<2
+    % (see the matching guard added there).
+    disp('no nav data -- skipping scout<->navigator motion registration (motion_params_base)')
+    motion_params_base = [];
+
+    %% Ratios: the only nav-derived quantity that still matters here.
+    % Two cases (nbins==1, a single scalar ratio broadcast to every shot
+    % below):
+    %  - an internal scout exists but the scout actually in use (cfg.scout_path)
+    %    is external (bkfs): load the internal scout and use it as a stand-in
+    %    single-bin "nav" to gauge signal-level mismatch against the external
+    %    scout that everything else is registered to.
+    %  - only the internal scout is available (no external one to compare
+    %    against): there's nothing to take a ratio of, so ratios = 1.
+    disp('get ratios (no-nav path)')
+    if ~isempty(cfg.scout_path_internal) && contains(cfg.scout_path, 'bkfs')
+        disp('using internal scout as nav substitute for ratio computation')
+        % Internal scout .mat files come from recon_EPTI_3D, same as the
+        % non-bkfs cfg.scout_path branch above -- auto-detect its format
+        % the same way that branch does (a0_sp = current recon_EPTI_3D
+        % "spatial_scout" format; a0_all/Phi = older "regular_scout" format),
+        % rather than assuming one specific layout.
+        mi = matfile(fullfile(dataset_path, cfg.scout_path_internal));
+        if ismember('a0_sp', who(mi))
+            internal_data = load(fullfile(dataset_path, cfg.scout_path_internal), 'a0_sp','L_l','Phi_all');
+            a_int_for_ratio = reshape(reshape(internal_data.a0_sp(:,:,:,:,1),[],internal_data.L_l) ...
+                * internal_data.Phi_all(nt_pick+Nt_ahead,:).', Ny_nav,Nz_nav,Nx_nav,[]);
+        else
+            internal_data = load(fullfile(dataset_path, cfg.scout_path_internal), 'a0_all','Phi','TEs','B0');
+            temp_int = permute(reshape(internal_data.a0_all,Ny_nav,Nz_nav,[],Nx_nav),[1 2 4 3]);
+            temp_int = reshape(reshape(temp_int,[],L)*internal_data.Phi.', Ny_nav,Nz_nav,Nx_nav,[]);
+            a_int_for_ratio = temp_int(:,:,:,nt_pick+Nt_ahead) .* exp(1i*2*pi*mean(internal_data.B0(:,:,:,:,cfg.scout_rep_sel),4) ...
+                .* internal_data.TEs(nt_pick+Nt_ahead));
+            clear temp_int
+        end
+        clear mi internal_data
+        a_int_for_ratio = a_int_for_ratio .* reshape(mask_si,1,1,[]);
+
+        ratios = abs(vec(a_int_for_ratio).') * conj(abs(vec(scout_for_ratio))) ...
+            / (abs(vec(a_int_for_ratio).') * conj(abs(vec(a_int_for_ratio))));
+        clear a_int_for_ratio
+    else
+        disp('only internal scout in use -- ratios = 1')
+        ratios = 1;
+    end
+end
 
 %% B0 estimation from scout; B0_scout_antiregi = B0_scout
 temp = scout_img;
@@ -275,6 +383,7 @@ cw = prctile(abs(vec(scout_img(:,:,:,1))), 99.9);
 
 mask_B0_nav = squeeze(abs(scout_img(:,:,:,1,:))) > cw/10;
 
+if ~cfg.no_nav
 %% Anti-registration: navigator -> scout
 a_nav_antiregi = zeros(Ny_nav,Nz_nav,Nx_nav,Nt_scout,nbins);
 for ii_bin = 1:nbins
@@ -300,6 +409,14 @@ for ii_bin = 1:nbins
         B0_nav_antiregi(:,:,:,ii_bin) = B0_nav(:,:,:,ii_bin);
     end
 end
+else
+    % No nav data: nothing to anti-register against the scout. Per user
+    % instruction, B0_nav_antiregi is just 0/[] in this case -- the joint
+    % B0 decomposition that consumes it (motion_newton_round.m, st_flag==1)
+    % is itself skipped whenever nav_rep<2, so this is never dereferenced.
+    disp('no nav data -- B0_nav_antiregi = []')
+    B0_nav_antiregi = [];
+end
 
 %% Optimization setup
 SEs_perm = permute(SEs_nav, [2 3 1 4]);  % Ny_nav,Nz_nav,Nx_nav,Ncoils
@@ -322,11 +439,18 @@ order_tmp = 1:nshot_total;
 order_grp_tmp = ceil(order_tmp/N_perg);
 
 ratios_all = ratios(order_grp_tmp);
-tmpl = find(order_tmp>8*shot_fid_in);
-tmps = find(order_grp_tmp<2);
-tmpl = intersect(tmpl,tmps);
-ratios_all(tmpl) = ratios(2);
-clear tmpl tmps order*tmp
+if nbins > 1
+    % Only meaningful with >=2 real bins (ratios(2) must exist) -- with
+    % no nav data, nbins==1 and order_grp_tmp is 1 everywhere already, so
+    % ratios_all is already the single scalar ratio broadcast to every
+    % shot; this correction has nothing left to do.
+    tmpl = find(order_tmp>8*shot_fid_in);
+    tmps = find(order_grp_tmp<2);
+    tmpl = intersect(tmpl,tmps);
+    ratios_all(tmpl) = ratios(2);
+    clear tmpl tmps
+end
+clear order*tmp
 
 %% Populate output struct
 out.voxel_size              = voxel_size;
@@ -349,6 +473,7 @@ out.motion_params_base      = motion_params_base;
 out.B0_nav_antiregi         = B0_nav_antiregi;
 out.B0_scout_antiregi       = B0_scout_antiregi;
 out.mask_B0_nav             = mask_B0_nav;
+out.mask_si                 = mask_si;
 out.ratios                  = ratios;
 out.a_nav_refs              = a_nav_refs;
 out.a_nav_sense             = a_nav_sense;
