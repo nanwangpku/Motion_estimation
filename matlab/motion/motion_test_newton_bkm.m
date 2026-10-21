@@ -558,12 +558,10 @@ fprintf('[motion_test_newton_bkm] nav_type = %g, st_flag = %s, solver = %s\n', .
 %% per-shot solver selection
 switch lower(opts.solver)
     case 'original'
-        sepmo_python = [main_path, filesep, 'epti_python', filesep, ...
-                        'mr_recon-main', filesep, 'motion_est_lbfgs.py'];
+        sepmo_python = fullfile(here, '..','..','python', 'motion_est_lbfgs.py');
         sepmo_tag    = '';
     case 'fast'
-        sepmo_python = [main_path, filesep, 'epti_python', filesep, ...
-                        'mr_recon-main', filesep, 'motion_est_lbfgs_fast.py'];
+        sepmo_python = fullfile(here, '..','..','python', 'motion_est_lbfgs_fast.py');
         sepmo_tag    = '_fast';   % keeps both solvers' results side by side
         if opts.n_alt ~= 1
             sepmo_tag = [sepmo_tag,'_alt',num2str(opts.n_alt)];
@@ -587,18 +585,17 @@ end
 %% joint-B0 implementation
 switch lower(opts.joint_solver)
     case 'original'
-        joint_python = [main_path, filesep, 'epti_python', filesep, ...
-                        'mr_recon-main', filesep, 'motion_est_b_coef_dyn_app.py'];
+        joint_python = fullfile(here, '..','..','python', 'motion_est_b_coef_dyn_app.py');
         joint_tag    = '';
     case 'fast'
-        joint_python = [main_path, filesep, 'epti_python', filesep, ...
-                        'mr_recon-main', filesep, 'motion_est_b_coef_dyn_app_fast.py'];
+        joint_python = fullfile(here, '..','..','python', 'motion_est_b_coef_dyn_app_fast.py');
         joint_tag    = '_jfast';
     otherwise
         error('motion_test_newton_bkm:badJointSolver', ...
               'opts.joint_solver must be ''original'' or ''fast'', got ''%s''', opts.joint_solver);
 end
-if ~exist(joint_python, 'file')
+% only required when the st=1 joint stage will actually run
+if ~isequal(st_flag, 0) && ~exist(joint_python, 'file')
     error('motion_test_newton_bkm:noJointSolver', 'joint-B0 script not found: %s', joint_python);
 end
 
